@@ -1,21 +1,21 @@
 # Baby Awake Detection
 
-A Python application that monitors an RTSP video stream to determine whether a baby is awake or asleep using pose estimation and Eye Aspect Ratio (EAR) analysis.
+A Python application that monitors an RTSP video stream (designed for IR baby cameras) to determine whether a baby is awake or asleep using pose estimation and movement analysis.
 
 ## Features
 
 - Real-time RTSP stream processing with automatic reconnection
-- Body pose detection (lying down, sitting, standing, moving)
-- Eye state detection using Eye Aspect Ratio (EAR)
-- Sleep state classification: AWAKE, DROWSY, ASLEEP, UNKNOWN
-- Visual overlay showing detection metrics
+- Optimized for IR/night vision cameras (CLAHE preprocessing)
+- Movement-based detection (handles crib bounce filtering)
+- Hysteresis-based state machine (prevents flickering)
+- Visual overlay with state, detection rate, and transition progress
 - Headless mode for running without display
 
 ## Requirements
 
 - macOS (tested on Apple Silicon)
 - Python 3.10-3.12 (MediaPipe does not support Python 3.13+)
-- An RTSP camera stream
+- An RTSP camera stream (works best with top-down crib cameras)
 
 ## Setup
 
@@ -69,35 +69,67 @@ Press `q` to quit when the video window is displayed, or `Ctrl+C` to stop in hea
 
 ## How It Works
 
-The application combines three signals to classify sleep state:
+### State Machine
 
-| Signal | Weight | Description |
-|--------|--------|-------------|
-| Eye Aspect Ratio (EAR) | 40% | Ratio of eye height to width - lower values indicate closed eyes |
-| Body Posture | 30% | Lying down suggests sleep, sitting/standing suggests awake |
-| Movement | 30% | More movement indicates wakefulness |
+The application uses a hysteresis-based state machine with three states:
 
-### Sleep States
+```
+EMPTY ──(2s detection)──> ASLEEP ──(5s movement)──> AWAKE
+  ^                          ^                        |
+  |                          |                        |
+  +──(30s no detection)──────+────(60s still)─────────+
+```
 
-- **AWAKE**: Eyes open, upright posture, or significant movement
-- **DROWSY**: Transitional state between awake and asleep
-- **ASLEEP**: Eyes closed, lying down, minimal movement
-- **UNKNOWN**: Insufficient detection confidence
+| State | Description |
+|-------|-------------|
+| **EMPTY** | No baby detected in crib |
+| **ASLEEP** | Baby detected, lying still |
+| **AWAKE** | Baby moving (crawling, rolling, etc.) |
 
-State changes require 3 seconds of persistence to prevent flickering.
+### Transition Thresholds
+
+| Transition | Requirement |
+|------------|-------------|
+| EMPTY → ASLEEP | Pose detected for 2+ seconds, no movement |
+| EMPTY → AWAKE | Pose detected + movement |
+| ASLEEP → AWAKE | Sustained movement for 5+ seconds |
+| AWAKE → ASLEEP | Still for 60+ seconds |
+| ANY → EMPTY | No detection for 30+ seconds |
+
+### Key Design Decisions
+
+- **Movement is the primary signal** - Eyes are rarely detectable with IR cameras
+- **Relative movement detection** - Filters out camera shake and crib bounce
+- **Detection accumulator** - Smooths over brief detection dropouts (common with IR)
+- **Hysteresis prevents flickering** - State changes require sustained evidence
 
 ## Project Structure
 
 ```
 baby_awake_detection/
-├── main.py                 # Application entry point
-├── requirements.txt        # Python dependencies
-├── .python-version         # pyenv Python version
+├── main.py                     # Application entry point
+├── requirements.txt            # Python dependencies
+├── .python-version             # pyenv Python version
 └── src/
-    ├── stream_capture.py   # RTSP stream handling
-    ├── pose_detector.py    # MediaPipe pose detection
-    ├── eye_detector.py     # Face mesh + EAR calculation
-    └── sleep_classifier.py # Sleep state classification
+    ├── stream_capture.py       # RTSP stream handling
+    ├── pose_detector.py        # MediaPipe pose detection + IR preprocessing
+    ├── detection_accumulator.py # Smoothing, dropout handling, movement calc
+    ├── state_machine.py        # Hysteresis-based state transitions
+    └── sleep_classifier.py     # Coordinator (ties everything together)
+```
+
+## Configuration
+
+Thresholds can be adjusted in `main.py`:
+
+```python
+thresholds = TransitionThresholds(
+    detection_to_present=2.0,    # Seconds to confirm baby present
+    movement_to_awake=5.0,       # Seconds of movement to trigger awake
+    still_to_asleep=60.0,        # Seconds still to trigger asleep
+    no_detection_to_empty=30.0,  # Seconds without detection for empty
+    movement_threshold=0.3,      # Movement score threshold (0-1)
+)
 ```
 
 ## Troubleshooting
@@ -118,6 +150,12 @@ python --version  # Should show 3.12.x
 
 ### Poor detection accuracy
 
-- Ensure adequate lighting
-- Position camera to capture full body and face
-- Adjust `ear_threshold` in `eye_detector.py` if eye detection is unreliable
+- Ensure adequate lighting (IR illumination for night)
+- Position camera for top-down view of crib
+- Check detection rate in overlay (should be >50%)
+- Adjust `min_detection_confidence` in `main.py` if needed (lower = more detections)
+
+### Detection flickering
+
+- If your IR camera has visible flicker, adjust camera settings (exposure, gain)
+- The detection accumulator should smooth over brief dropouts automatically
