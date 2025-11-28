@@ -24,6 +24,7 @@ class DetectionResult:
     detected: bool
     landmarks: Optional[np.ndarray]  # Shape (33, 4): [x, y, z, visibility] per landmark
     raw_confidence: float  # MediaPipe's average visibility score
+    visible_landmarks: int = 0  # How many landmarks have visibility > 0.5
 
 
 class PoseDetector:
@@ -87,7 +88,7 @@ class PoseDetector:
             enable_ir_preprocessing: Whether to apply CLAHE for IR cameras
         """
         self._pose = mp.solutions.pose.Pose(
-            static_image_mode=False,
+            static_image_mode=True,  # Full detection each frame - slower but more stable for IR
             model_complexity=model_complexity,
             min_detection_confidence=min_detection_confidence,
             min_tracking_confidence=min_tracking_confidence,
@@ -124,6 +125,10 @@ class PoseDetector:
                 raw_confidence=0.0,
             )
 
+        # Check how many landmarks have good visibility
+        visible_count = sum(1 for lm in results.pose_landmarks.landmark if lm.visibility > 0.5)
+        total_landmarks = len(results.pose_landmarks.landmark)
+
         # Extract landmarks as numpy array
         h, w = frame.shape[:2]
         landmarks = np.array([
@@ -138,6 +143,7 @@ class PoseDetector:
             detected=True,
             landmarks=landmarks,
             raw_confidence=avg_confidence,
+            visible_landmarks=visible_count,
         )
 
     def _preprocess_ir(self, frame: np.ndarray) -> np.ndarray:

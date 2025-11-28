@@ -28,6 +28,7 @@ class ClassificationResult:
     has_detection: bool
     detection_rate: float  # What % of recent frames had valid detections
     landmarks: Optional[np.ndarray]
+    visible_landmarks: int  # How many landmarks visible this frame
 
     # Movement info
     movement_score: float
@@ -127,6 +128,7 @@ class SleepClassifier:
             has_detection=accumulated.has_detection,
             detection_rate=accumulated.detection_rate,
             landmarks=accumulated.landmarks,
+            visible_landmarks=detection.visible_landmarks if detection.detected else 0,
             movement_score=accumulated.movement_score,
             time_in_state=state_info.time_in_state,
             transition_progress=state_info.transition_progress,

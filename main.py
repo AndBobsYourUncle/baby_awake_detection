@@ -33,7 +33,7 @@ class BabyMonitor:
 
         self._classifier = SleepClassifier(
             min_detection_confidence=0.3,
-            model_complexity=1,
+            model_complexity=2,  # Heavy model - slower but more accurate
             enable_ir_preprocessing=True,
             buffer_seconds=3.0,
             smoothing_factor=0.3,
@@ -158,6 +158,7 @@ class BabyMonitor:
         metrics = [
             f"FPS: {fps:.1f}",
             f"Detection: {result.detection_rate*100:.0f}%",
+            f"Visible: {result.visible_landmarks}/33",
             f"Movement: {result.movement_score:.2f}",
             f"Confidence: {result.confidence:.2f}",
             f"In state: {result.time_in_state:.1f}s",

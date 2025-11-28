@@ -54,19 +54,30 @@ class DetectionAccumulator:
         self._smoothed_landmarks: Optional[np.ndarray] = None
         self._last_detection_time: Optional[float] = None
 
-        # Movement tracking - use relative distances between body parts
-        # This filters out camera shake and crib bounce
-        self._prev_relative_distances: Optional[dict] = None
+        # Movement tracking
+        self._prev_landmarks: Optional[np.ndarray] = None
         self._movement_history: deque = deque(maxlen=30)  # ~1 second of movement scores
 
-        # Key landmark indices for movement calculation (arms/hands - usually visible)
+        # Key landmark indices for movement calculation
         self.NOSE = 0
+        self.LEFT_EYE = 2
+        self.RIGHT_EYE = 5
         self.LEFT_SHOULDER = 11
         self.RIGHT_SHOULDER = 12
         self.LEFT_ELBOW = 13
         self.RIGHT_ELBOW = 14
         self.LEFT_WRIST = 15
         self.RIGHT_WRIST = 16
+        self.LEFT_HIP = 23
+        self.RIGHT_HIP = 24
+
+        # Landmarks to track for movement (upper body focus since lower often hidden)
+        self.MOVEMENT_LANDMARKS = [
+            self.NOSE, self.LEFT_EYE, self.RIGHT_EYE,
+            self.LEFT_SHOULDER, self.RIGHT_SHOULDER,
+            self.LEFT_ELBOW, self.RIGHT_ELBOW,
+            self.LEFT_WRIST, self.RIGHT_WRIST,
+        ]
 
     def update(self, landmarks: Optional[np.ndarray], timestamp: Optional[float] = None) -> AccumulatedState:
         """
@@ -152,60 +163,74 @@ class DetectionAccumulator:
 
     def _calculate_movement_score(self, landmarks: Optional[np.ndarray]) -> float:
         """
-        Calculate movement based on relative distances between body parts.
-        This filters out camera shake and crib bounce since those move all points equally.
+        Calculate movement using absolute position changes, filtering out global motion.
+
+        The key insight:
+        - Crib bounce: ALL landmarks move together (high global, low local motion)
+        - Baby movement: Individual body parts move differently (high local motion)
+
+        We calculate per-landmark movement, subtract global body motion, and use
+        the residual as our movement signal.
         """
-        if landmarks is None or self._smoothed_landmarks is None:
-            # No new detection - movement is 0 (or maintain last value)
+        if landmarks is None:
+            # No detection - return smoothed history or 0
             if self._movement_history:
                 return sum(self._movement_history) / len(self._movement_history)
             return 0.0
 
-        # Calculate relative distances between key body parts
-        current_distances = self._get_relative_distances(landmarks)
-
-        if self._prev_relative_distances is None:
-            self._prev_relative_distances = current_distances
+        if self._prev_landmarks is None:
+            self._prev_landmarks = landmarks.copy()
             return 0.0
 
-        # Calculate how much the relative distances changed
-        changes = []
-        for key in current_distances:
-            if key in self._prev_relative_distances:
-                curr = current_distances[key]
-                prev = self._prev_relative_distances[key]
-                if curr is not None and prev is not None:
-                    changes.append(abs(curr - prev))
+        # Calculate movement for each tracked landmark
+        movements = []
+        valid_indices = []
 
-        self._prev_relative_distances = current_distances
+        for idx in self.MOVEMENT_LANDMARKS:
+            # Only use landmarks visible in both frames
+            if landmarks[idx, 3] > 0.3 and self._prev_landmarks[idx, 3] > 0.3:
+                curr_pos = landmarks[idx, :2]
+                prev_pos = self._prev_landmarks[idx, :2]
+                movement = curr_pos - prev_pos
+                movements.append(movement)
+                valid_indices.append(idx)
 
-        if not changes:
+        self._prev_landmarks = landmarks.copy()
+
+        if len(movements) < 3:
+            # Not enough visible landmarks
+            if self._movement_history:
+                return sum(self._movement_history) / len(self._movement_history)
             return 0.0
 
-        # Normalize movement score
-        avg_change = np.mean(changes)
-        movement = min(avg_change / self.movement_threshold, 1.0)
+        movements = np.array(movements)
+
+        # Calculate global motion (average movement of all tracked points)
+        # This represents camera shake or crib bounce
+        global_motion = np.mean(movements, axis=0)
+
+        # Subtract global motion to get local (body-part-specific) motion
+        local_movements = movements - global_motion
+
+        # Calculate magnitude of local movements
+        local_magnitudes = np.linalg.norm(local_movements, axis=1)
+
+        # Use the average local movement as our signal
+        avg_local_movement = np.mean(local_magnitudes)
+
+        # Also check max movement for sudden gestures
+        max_local_movement = np.max(local_magnitudes)
+
+        # Combine average and max (weight max higher to catch quick gestures)
+        combined = avg_local_movement * 0.6 + max_local_movement * 0.4
+
+        # Normalize to 0-1 range (threshold is in pixels)
+        # Lower threshold since we're now filtering global motion
+        movement = min(combined / (self.movement_threshold * 0.3), 1.0)
 
         # Add to history and return smoothed value
         self._movement_history.append(movement)
         return sum(self._movement_history) / len(self._movement_history)
-
-    def _get_relative_distances(self, landmarks: np.ndarray) -> dict:
-        """Get distances between key body part pairs."""
-        def dist(i1, i2):
-            if landmarks[i1, 3] > 0.3 and landmarks[i2, 3] > 0.3:
-                return np.linalg.norm(landmarks[i1, :2] - landmarks[i2, :2])
-            return None
-
-        return {
-            'nose_to_left_shoulder': dist(self.NOSE, self.LEFT_SHOULDER),
-            'nose_to_right_shoulder': dist(self.NOSE, self.RIGHT_SHOULDER),
-            'shoulder_width': dist(self.LEFT_SHOULDER, self.RIGHT_SHOULDER),
-            'left_arm': dist(self.LEFT_SHOULDER, self.LEFT_WRIST),
-            'right_arm': dist(self.RIGHT_SHOULDER, self.RIGHT_WRIST),
-            'left_forearm': dist(self.LEFT_ELBOW, self.LEFT_WRIST),
-            'right_forearm': dist(self.RIGHT_ELBOW, self.RIGHT_WRIST),
-        }
 
     def _calculate_confidence(self, detection_rate: float, seconds_since: float) -> float:
         """Calculate overall confidence in current state estimate."""
@@ -222,5 +247,5 @@ class DetectionAccumulator:
         self._detection_buffer.clear()
         self._smoothed_landmarks = None
         self._last_detection_time = None
-        self._prev_relative_distances = None
+        self._prev_landmarks = None
         self._movement_history.clear()
