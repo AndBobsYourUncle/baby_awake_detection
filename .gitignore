@@ -19,3 +19,10 @@ env/
 
 # OS
 .DS_Store
+
+# Config (may contain passwords)
+config.yaml
+
+# Logs
+*.csv
+motion_log*.csv

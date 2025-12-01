@@ -8,6 +8,7 @@ from a YAML file or constructed programmatically.
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
+import socket
 import yaml
 
 
@@ -99,6 +100,41 @@ class DebugConfig:
     log_interval_seconds: float = 0.1  # How often to log (0 = every frame)
 
 
+def _default_client_id() -> str:
+    """Generate default MQTT client ID based on hostname."""
+    hostname = socket.gethostname().replace('.', '_').replace('-', '_')[:20]
+    return f"baby_awake_{hostname}"
+
+
+@dataclass
+class MqttConfig:
+    """Configuration for MQTT integration with Home Assistant."""
+    # Enable/disable MQTT
+    enabled: bool = False
+
+    # Broker connection
+    host: str = "localhost"
+    port: int = 1883
+    username: Optional[str] = None
+    password: Optional[str] = None
+    tls: bool = False
+
+    # Client settings
+    client_id: str = field(default_factory=_default_client_id)
+
+    # Home Assistant discovery
+    discovery_prefix: str = "homeassistant"
+    base_topic: str = "babycam/crib"
+
+    # Device identification
+    device_id: str = "baby_crib_monitor"
+    device_name: str = "Baby Crib Monitor"
+
+    # Publishing settings
+    publish_interval_seconds: float = 1.0  # How often to publish state (0 = every frame)
+    qos: int = 1  # MQTT QoS level (0, 1, or 2)
+
+
 @dataclass
 class Config:
     """Main configuration container."""
@@ -106,6 +142,7 @@ class Config:
     motion: MotionConfig = field(default_factory=MotionConfig)
     state: StateConfig = field(default_factory=StateConfig)
     debug: DebugConfig = field(default_factory=DebugConfig)
+    mqtt: MqttConfig = field(default_factory=MqttConfig)
 
     @classmethod
     def from_yaml(cls, path: str) -> "Config":
@@ -134,6 +171,11 @@ class Config:
             for key, value in data['debug'].items():
                 if hasattr(config.debug, key):
                     setattr(config.debug, key, value)
+
+        if 'mqtt' in data:
+            for key, value in data['mqtt'].items():
+                if hasattr(config.mqtt, key):
+                    setattr(config.mqtt, key, value)
 
         return config
 
@@ -177,6 +219,21 @@ class Config:
                 'highlight_arms': self.debug.highlight_arms,
                 'enable_csv_logging': self.debug.enable_csv_logging,
                 'csv_log_path': self.debug.csv_log_path,
+            },
+            'mqtt': {
+                'enabled': self.mqtt.enabled,
+                'host': self.mqtt.host,
+                'port': self.mqtt.port,
+                'username': self.mqtt.username,
+                'password': self.mqtt.password,
+                'tls': self.mqtt.tls,
+                'client_id': self.mqtt.client_id,
+                'discovery_prefix': self.mqtt.discovery_prefix,
+                'base_topic': self.mqtt.base_topic,
+                'device_id': self.mqtt.device_id,
+                'device_name': self.mqtt.device_name,
+                'publish_interval_seconds': self.mqtt.publish_interval_seconds,
+                'qos': self.mqtt.qos,
             },
         }
 

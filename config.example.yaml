@@ -73,3 +73,30 @@ debug:
   enable_csv_logging: false
   csv_log_path: motion_log.csv
   log_interval_seconds: 0.1  # 0 = every frame
+
+# MQTT integration with Home Assistant
+mqtt:
+  # Enable/disable MQTT publishing
+  enabled: false
+
+  # Broker connection
+  host: localhost            # MQTT broker hostname
+  port: 1883                 # MQTT broker port
+  username: null             # MQTT username (optional)
+  password: null             # MQTT password (optional)
+  tls: false                 # Use TLS/SSL connection
+
+  # Client settings
+  client_id: null            # MQTT client ID (auto-generated if null)
+
+  # Home Assistant discovery
+  discovery_prefix: homeassistant  # HA discovery topic prefix
+  base_topic: babycam/crib         # Base topic for all entities
+
+  # Device identification (shown in Home Assistant)
+  device_id: baby_crib_monitor     # Unique device identifier
+  device_name: Baby Crib Monitor   # Human-readable device name
+
+  # Publishing settings
+  publish_interval_seconds: 1.0    # How often to publish (0 = every frame)
+  qos: 1                           # MQTT QoS level (0, 1, or 2)

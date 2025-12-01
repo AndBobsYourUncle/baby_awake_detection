@@ -9,6 +9,7 @@ A Python application that monitors an RTSP video stream (designed for IR baby ca
 - **Crib-relative motion detection**: Filters out camera shake and crib bounce
 - **Arm/hand-aware**: Arms and hands weighted more heavily for awake detection
 - **Hysteresis-based state machine**: Prevents flickering between states
+- **Home Assistant integration**: MQTT auto-discovery creates entities automatically
 - **Debug visualization**: Skeleton overlay with pose class, movement metrics
 - **CSV logging**: Export frame-by-frame data for offline analysis
 - **Configurable via YAML**: All thresholds and settings in one place
@@ -164,6 +165,8 @@ baby_awake_detection/
     ├── pose_classifier.py      # Rule-based pose classification
     ├── motion_analyzer.py      # Crib-relative motion detection
     ├── sleep_state_machine.py  # Hysteresis-based state transitions
+    ├── state_snapshot.py       # Unified state for MQTT publishing
+    ├── mqtt_client.py          # MQTT + Home Assistant discovery
     ├── debug_visualizer.py     # Overlay rendering & CSV logging
     └── config.py               # Configuration dataclasses
 ```
@@ -260,6 +263,100 @@ python main.py --backend vitpose --checkpoint path/to/finetuned.pth rtsp://...
 ```
 
 No code changes required - just point to your checkpoint file.
+
+## MQTT / Home Assistant Integration
+
+The baby monitor can publish state to an MQTT broker, enabling automatic integration with Home Assistant via MQTT Discovery.
+
+### Enabling MQTT
+
+**Via command line:**
+
+```bash
+python main.py rtsp://... --mqtt --mqtt-host 192.168.1.10 --mqtt-user homeassistant --mqtt-password secret
+```
+
+**Via config file:**
+
+```yaml
+mqtt:
+  enabled: true
+  host: 192.168.1.10
+  port: 1883
+  username: homeassistant
+  password: secret
+  device_name: "Nursery Crib Monitor"
+```
+
+### Home Assistant Setup
+
+1. Ensure the [MQTT integration](https://www.home-assistant.io/integrations/mqtt/) is configured in Home Assistant
+2. Start the baby monitor with MQTT enabled
+3. The "Baby Crib Monitor" device will appear automatically in Home Assistant
+
+### Entities Created
+
+The following entities are automatically created via MQTT Discovery:
+
+| Entity | Type | Description |
+|--------|------|-------------|
+| `Baby Present` | Binary Sensor | ON when baby is detected in crib |
+| `Baby Awake` | Binary Sensor | ON when baby is awake |
+| `Baby State` | Sensor (enum) | Current state: empty, present, asleep, awake |
+| `Baby Movement` | Sensor | Combined movement score (0-1) |
+| `Torso Movement` | Sensor | Torso-only movement score |
+| `Arm Movement` | Sensor | Arm/hand movement score |
+| `Smoothed Movement` | Sensor | Temporally smoothed movement |
+| `Pose Quality` | Sensor | Detection quality percentage |
+| `Pose Class` | Sensor (enum) | Detected pose: lying_flat, sitting, etc. |
+
+### MQTT Topics
+
+All topics are published under the configured `base_topic` (default: `babycam/crib`):
+
+```
+babycam/crib/availability    # "online" or "offline"
+babycam/crib/present         # "ON" or "OFF"
+babycam/crib/awake           # "ON" or "OFF"
+babycam/crib/state           # "empty", "present", "asleep", "awake"
+babycam/crib/movement/torso  # 0.000 - 1.000
+babycam/crib/movement/arms   # 0.000 - 1.000
+babycam/crib/movement/combined
+babycam/crib/movement/smoothed
+babycam/crib/pose/quality    # 0.0 - 100.0
+babycam/crib/pose/class      # "lying_flat", "sitting", etc.
+```
+
+### Example Automations
+
+**Notify when baby wakes up:**
+
+```yaml
+automation:
+  - alias: "Baby Woke Up"
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.baby_crib_monitor_awake
+        from: "off"
+        to: "on"
+    action:
+      - service: notify.mobile_app
+        data:
+          message: "Baby is awake!"
+```
+
+**Track sleep duration:**
+
+```yaml
+sensor:
+  - platform: history_stats
+    name: "Baby Sleep Time Today"
+    entity_id: sensor.baby_crib_monitor_state
+    state: "asleep"
+    type: time
+    start: "{{ now().replace(hour=0, minute=0, second=0) }}"
+    end: "{{ now() }}"
+```
 
 ## Troubleshooting
 

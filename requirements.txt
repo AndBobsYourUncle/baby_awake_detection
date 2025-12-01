@@ -14,3 +14,6 @@ ultralytics>=8.0.0
 
 # MediaPipe (optional - only if using --backend mediapipe)
 # mediapipe>=0.10.0
+
+# MQTT integration (optional - only if using --mqtt)
+paho-mqtt>=2.0.0
