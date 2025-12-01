@@ -1,0 +1,75 @@
+# Baby Awake Detection Configuration
+# Copy this file to config.yaml and customize as needed
+
+pose:
+  # Pose estimation backend: "vitpose" (default) or "mediapipe"
+  backend: vitpose
+
+  # ViTPose settings (only used when backend: vitpose)
+  vitpose_model: ViTPose-B  # Options: ViTPose-S, ViTPose-B, ViTPose-L, ViTPose-H
+  vitpose_checkpoint: null   # Path to custom/fine-tuned checkpoint
+  device: auto               # Options: auto, cpu, cuda, mps
+
+  # IR camera preprocessing
+  enable_ir_preprocessing: true
+  clahe_clip_limit: 2.0
+  clahe_grid_size: 8
+
+  # MediaPipe settings (only used when backend: mediapipe)
+  mediapipe_model_complexity: 1  # 0=lite, 1=full, 2=heavy
+  mediapipe_min_detection_confidence: 0.3
+  mediapipe_min_tracking_confidence: 0.3
+
+motion:
+  # Pose quality requirements
+  min_torso_keypoints: 3     # Need at least this many torso points
+  min_keypoint_confidence: 0.3
+
+  # Movement weighting (must sum to 1.0)
+  torso_weight: 0.4          # Weight for torso movement
+  arm_weight: 0.6            # Weight for arm/hand movement (higher = more sensitive to arms)
+
+  # Temporal smoothing
+  smoothing_window_seconds: 3.0
+  smoothing_type: ema        # Options: ema, median
+  ema_alpha: 0.3             # Lower = more smoothing
+
+  # Movement scaling
+  movement_scale_pixels: 50.0  # Pixels of movement that maps to score of 1.0
+
+  # Dropout handling
+  buffer_seconds: 5.0        # Hold pose estimate for this long during dropouts
+
+state:
+  # Movement thresholds (0-1 range)
+  movement_low: 0.1          # Below this = "still" (for sleep detection)
+  movement_high: 0.3         # Above this = "moving" (for awake detection)
+  movement_arms_high: 0.4    # Arm-specific threshold for strong awake signal
+
+  # Time thresholds (seconds)
+  present_confirm_seconds: 2.0      # Good pose for this long = confirmed present
+  still_to_asleep_seconds: 60.0     # Still for this long = asleep
+  movement_to_awake_seconds: 5.0    # Moving for this long = awake
+  no_detection_to_empty_seconds: 30.0  # No pose for this long = empty
+  awake_pose_confirm_seconds: 1.0   # Awake pose (sitting, on elbows) for this long = awake
+
+  # Hysteresis
+  hysteresis_seconds: 2.0    # Minimum time between state changes
+
+debug:
+  # Overlay settings
+  show_overlay: true
+  show_skeleton: true
+  show_keypoint_names: false
+  show_confidence: true
+  highlight_arms: true       # Draw arms in different color
+
+  # Skeleton colors (BGR format)
+  torso_color: [0, 255, 0]   # Green
+  arm_color: [0, 255, 255]   # Yellow
+  low_confidence_color: [0, 0, 255]  # Red
+
+  # CSV logging
+  enable_csv_logging: false
+  csv_log_path: motion_log.csv
+  log_interval_seconds: 0.1  # 0 = every frame
